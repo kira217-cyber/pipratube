@@ -1,0 +1,11 @@
+node_modules
+.env
+.env.*
+!.env.example
+# local development database (mongod --dbpath)
+.mongo-data
+*.log
+# images saved by the API (served at /uploads)
+uploads
+# chunked video uploads waiting to be processed
+tmp

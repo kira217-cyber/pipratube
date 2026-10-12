@@ -1,0 +1,20 @@
+# Dependencies and builds
+node_modules/
+dist/
+.cache/
+
+# Secrets — only the .env.example files belong in the repo
+.env
+.env.*
+!.env.example
+
+# Files the API stores at runtime
+server/uploads/
+server/tmp/
+.mongo-data/
+
+# Logs and editors
+*.log
+.DS_Store
+.vscode/
+.idea/
