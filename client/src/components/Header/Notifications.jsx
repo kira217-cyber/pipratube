@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { Bell, Heart } from "lucide-react";
+import { Bell, Heart, ShieldAlert } from "lucide-react";
 
 import { Avatar, Spinner } from "../ui/ui";
 import { notifications as fetchNotifications, readAll, unreadCount } from "../../api/engage";
@@ -9,6 +9,10 @@ import { timeAgo } from "../../utils/format";
 import { openStudio } from "../../utils/handoff";
 
 const POLL_MS = 60 * 1000;
+
+// About the creator's own upload and the adult-content check: they open
+// Studio, and never show the video's picture.
+const MODERATION = ["video_review", "video_approved", "video_rejected", "account_blocked"];
 
 const describe = (n) => {
   const who = n.actor?.name || "Someone";
@@ -120,8 +124,11 @@ const Notifications = () => {
                   to={linkFor(n)}
                   onClick={(event) => {
                     setOpen(false);
-                    // A new subscriber is news for Studio, not a page here.
-                    if (n.type === "subscriber" && !n.video?.id) {
+                    // A new subscriber or a review decision is news for Studio, not a page here.
+                    if (MODERATION.includes(n.type)) {
+                      event.preventDefault();
+                      openStudio("/videos");
+                    } else if (n.type === "subscriber" && !n.video?.id) {
                       event.preventDefault();
                       openStudio("/");
                     }
@@ -132,12 +139,13 @@ const Notifications = () => {
                     {!n.read && <span className="absolute -left-2.5 top-4 h-1.5 w-1.5 rounded-full bg-[#3ea6ff]" />}
                     <Avatar src={n.actor?.avatar || n.channel?.avatar} name={n.actor?.name || n.channel?.name} size="h-10 w-10" ring={false} />
                     {n.type === "heart" && <Heart className="absolute -bottom-1 -right-1 h-4 w-4 fill-live text-live" />}
+                    {MODERATION.includes(n.type) && n.type !== "video_approved" && <ShieldAlert className="absolute -bottom-1 -right-1 h-4 w-4 rounded-full bg-black text-live" />}
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="line-clamp-3 text-sm text-white">{describe(n)}</span>
                     <span className="mt-0.5 block text-xs text-muted">{timeAgo(n.createdAt)}</span>
                   </span>
-                  {n.video?.thumbnail && <img src={n.video.thumbnail} alt="" className="aspect-video w-24 shrink-0 rounded-md object-cover" />}
+                  {n.video?.thumbnail && !MODERATION.includes(n.type) && <img src={n.video.thumbnail} alt="" className="aspect-video w-24 shrink-0 rounded-md object-cover" />}
                 </Link>
               ))
             )}

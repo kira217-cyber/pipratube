@@ -23,10 +23,13 @@ import adminContentRoutes from "./routes/adminContent.js";
 import adminSiteRoutes from "./routes/adminSite.js";
 import uploadRoutes from "./routes/uploads.js";
 import ogRoutes from "./routes/og.js";
+import imgRoutes from "./routes/img.js";
 import bunnyWebhookRoutes from "./routes/bunnyWebhook.js";
 import { startStreamWatcher } from "./utils/streamVideos.js";
+import { resumeServerChecks } from "./utils/moderation/flow.js";
 import { resumePendingVideos } from "./utils/videoPipeline.js";
 import { UPLOAD_DIR } from "./utils/localFiles.js";
+import { mediaToolsStatus } from "./utils/ffmpegBin.js";
 
 checkProductionEnv();
 
@@ -54,13 +57,14 @@ app.use(express.urlencoded({ extended: true }));
 
 app.get("/", (req, res) => res.send("PipraTube API is running"));
 app.get("/api/health", (req, res) =>
-  res.json({ ok: true, db: mongoose.connection.readyState === 1 ? "up" : "down", time: new Date().toISOString() }),
+  res.json({ ok: true, db: mongoose.connection.readyState === 1 ? "up" : "down", time: new Date().toISOString(), media: mediaToolsStatus() }),
 );
 
 // Slow down password guessing on every sign-in / sign-up door.
 app.use(["/api/auth/login", "/api/auth/register", "/api/auth/handoff/redeem", "/api/admin/login"], authLimiter);
 
 app.use("/api/og", ogRoutes);
+app.use("/api/img", imgRoutes);
 app.use("/api/bunny", bunnyWebhookRoutes);
 app.use("/api/uploads", uploadRoutes);
 app.use("/api/auth", authRoutes);
@@ -77,8 +81,9 @@ app.use((req, res) => res.status(404).json({ success: false, message: "Route not
 
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-  console.error(err);
   const status = err.status || 500;
+  // A missing picture or a bad request isn't a server fault — only log real errors.
+  if (status >= 500) console.error(err);
   // Don't leak internals to visitors in production.
   const message = status >= 500 && isProduction() ? "Server error" : err.message || "Server error";
   res.status(status).json({ success: false, message });
@@ -87,6 +92,7 @@ app.use((err, req, res, next) => {
 await connectDB();
 resumePendingVideos().catch((error) => console.error("Resuming video processing failed:", error.message));
 startStreamWatcher();
+resumeServerChecks().catch((error) => console.error("Resuming adult-content checks failed:", error.message));
 
 // Live analytics (see sockets/analytics.js) shares the HTTP server.
 const server = http.createServer(app);

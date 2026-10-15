@@ -5,6 +5,7 @@ import { deleteFromBunny } from "./bunnyStorage.js";
 import { LOCAL_PREFIX, removeLocal, saveLocalImage } from "../utils/localFiles.js";
 import { convertImage, MAX_IMAGE_MB } from "../utils/imageConvert.js";
 import { isStreamFileName, removeStreamFile } from "../utils/streamVideos.js";
+import { isAdultImage } from "../utils/moderation/check.js";
 
 const VIDEO_TYPES = [
   "video/mp4",
@@ -38,6 +39,8 @@ export const videoUpload = multer({
 }).fields([
   { name: "video", maxCount: 1 },
   { name: "thumbnail", maxCount: 1 },
+  // Pictures of frames the browser's adult-content check flagged.
+  { name: "flagFrames", maxCount: 4 },
 ]);
 
 // Avatar / banner / thumbnail-only edits.
@@ -49,7 +52,14 @@ export const imageUpload = multer({
 
 // Images are converted to WebP and saved on this server (uploads/images);
 // returns { url, fileName }.
-export const storeImage = async (file, prefix) => saveLocalImage(await convertImage(file.buffer, file.originalname), prefix, "image.webp");
+// `screen`: a picture a viewer will see (thumbnail, avatar, banner) is
+// refused when it's pornographic. Admins' uploads aren't screened.
+export const ADULT_IMAGE_MESSAGE = "This picture looks like adult content, which isn't allowed on PipraTube — please choose another one";
+export const storeImage = async (file, prefix, { screen = false } = {}) => {
+  const webp = await convertImage(file.buffer, file.originalname);
+  if (screen && (await isAdultImage(webp))) throw Object.assign(new Error(ADULT_IMAGE_MESSAGE), { status: 400 });
+  return saveLocalImage(webp, prefix, "image.webp");
+};
 
 // Local files are removed from disk, Bunny Stream videos through its API,
 // anything else is a video on Bunny Storage.

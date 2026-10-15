@@ -1,12 +1,28 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router";
 import { Lock, UserRound } from "lucide-react";
 
 import { Card, Field, Logo, PasswordInput, PrimaryButton, inputClass } from "../components/ui/ui";
-import { apiError } from "../api/studioApi";
+import { apiError, studioApi } from "../api/studioApi";
 import { SITE_URL } from "../api/axios";
 import { useAuth } from "../context/AuthContext";
 import { toast } from "../utils/alerts";
+
+// Which ways to sign in the admin has left on (GET /api/auth/options).
+const useLoginLabel = () => {
+  const [label, setLabel] = useState(["Email or phone", "you@example.com or 01XXXXXXXXX"]);
+  useEffect(() => {
+    studioApi
+      .get("/api/auth/options")
+      .then(({ data }) => {
+        const { phone, email } = data.data;
+        if (phone?.login && !email?.login) setLabel(["Mobile number", "01XXXXXXXXX"]);
+        else if (email?.login && !phone?.login) setLabel(["Email", "you@example.com"]);
+      })
+      .catch(() => {});
+  }, []);
+  return label;
+};
 
 // Studio sign-in — the same PipraTube account as the viewer site.
 const Login = () => {
@@ -16,6 +32,7 @@ const Login = () => {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const [fieldLabel, fieldPlaceholder] = useLoginLabel();
   const from = location.state?.from || "/";
 
   if (user) return <Navigate to={from} replace />;
@@ -43,12 +60,12 @@ const Login = () => {
           <p className="mt-1 text-sm text-muted">Use the same account as PipraTube</p>
         </div>
         <form onSubmit={submit} className="mt-6 space-y-4">
-          <Field label="Email or phone" icon={UserRound} required>
+          <Field label={fieldLabel} icon={UserRound} required>
             <input
               required
               value={identifier}
               onChange={(event) => setIdentifier(event.target.value)}
-              placeholder="you@example.com or 01XXXXXXXXX"
+              placeholder={fieldPlaceholder}
               autoComplete="username"
               className={inputClass}
             />

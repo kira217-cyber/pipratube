@@ -20,6 +20,7 @@ import { Avatar, IconTile, Logo, Spinner } from "../components/ui/ui";
 import { useAuth } from "../context/AuthContext";
 import { openSite } from "../utils/handoff";
 import { SITE_URL } from "../api/axios";
+import NotificationBell from "../components/NotificationBell";
 import TopProgress from "../components/TopProgress";
 
 // YouTube Studio's shape: a channel card and menu on the left, the page on
@@ -161,6 +162,7 @@ const StudioLayout = () => {
           <Link to="/upload" className="hidden items-center gap-1.5 rounded-xl border border-line bg-card-2 px-4 py-2 text-sm font-semibold hover:bg-white/10 sm:flex">
             <Plus className="h-5 w-5 text-brand" /> Create
           </Link>
+          <NotificationBell />
           <AccountMenu />
         </div>
       </header>

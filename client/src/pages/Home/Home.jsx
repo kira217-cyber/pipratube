@@ -8,10 +8,11 @@ import LivePreviewCard from "../../components/LivePreviewCard/LivePreviewCard";
 import ChannelCircle, { ChannelRail, railItemClass } from "../../components/ChannelCircle/ChannelCircle";
 import { EmptyState, LogoMark, SectionHeader, Spinner } from "../../components/ui/ui";
 import { api } from "../../api/axios";
-import { VideoRail } from "../../components/VideoCard/VideoCard";
 import { useSiteSettings } from "../../hooks/useSiteSettings";
 import { useFetch } from "../../hooks/useFetch";
+import { VideoRail } from "../../components/VideoCard/VideoCard";
 import { IMG, channelPath, mediaUrl, videoId, viewsText } from "../../utils/format";
+import { useRailGestures } from "../../hooks/useRailGestures";
 import StudioLink from "../../components/StudioLink/StudioLink";
 
 const PAGE_SIZE = 12;
@@ -74,10 +75,14 @@ const ShortsShelf = ({ videos }) => {
   const rail = useRef(null);
   const drag = useRef(null);
   const [edges, setEdges] = useState({ start: true, end: true });
+  useRailGestures(rail);
 
   const measure = useCallback(() => {
     const el = rail.current;
-    if (el) setEdges({ start: el.scrollLeft <= 4, end: el.scrollLeft + el.clientWidth >= el.scrollWidth - 4 });
+    if (!el) return;
+    const next = { start: el.scrollLeft <= 4, end: el.scrollLeft + el.clientWidth >= el.scrollWidth - 4 };
+    // Only re-render when an arrow actually appears or goes — not on every scroll frame.
+    setEdges((prev) => (prev.start === next.start && prev.end === next.end ? prev : next));
   }, []);
 
   useEffect(() => {
@@ -93,7 +98,7 @@ const ShortsShelf = ({ videos }) => {
   return (
     // min-w-0: as a grid item it would otherwise grow to fit every card and
     // leave nothing to scroll.
-    <section className="min-w-0 sm:col-span-2 lg:col-span-3">
+    <section className="offscreen-lazy -mx-4 min-w-0 px-4 sm:col-span-2 sm:-mx-3 sm:px-3 lg:col-span-3">
       <div className="mb-3 flex items-center justify-between">
         <h2 className="flex items-center gap-2 text-xl font-bold">
           <ShortsMark /> Shorts
@@ -137,7 +142,7 @@ const ShortsShelf = ({ videos }) => {
               className="group relative w-[42%] shrink-0 snap-start overflow-hidden rounded-2xl bg-card-2 min-[480px]:w-[31%] sm:w-[23%] lg:w-[16%]"
             >
               {/* Hover plays the first few seconds, silently, like YouTube. */}
-              <VideoPreview id={`home-short-${videoId(video)}`} src={video.videoUrl} poster={video.thumbnail} alt={video.title} clipSeconds={SHORT_PREVIEW_SECONDS} minimal className="aspect-[9/16]" />
+              <VideoPreview id={`home-short-${videoId(video)}`} src={video.videoUrl} posterWidth={360} poster={video.thumbnail} alt={video.title} clipSeconds={SHORT_PREVIEW_SECONDS} minimal className="aspect-[9/16]" />
               <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent p-2.5 pt-10">
                 <p className="line-clamp-2 text-[13px] font-semibold leading-tight text-white">{video.title}</p>
                 <p className="mt-0.5 text-xs text-white/80">{viewsText(video.views)}</p>
@@ -312,7 +317,10 @@ const Home = () => {
     const section = k >= 2 && sections[k - 2];
     if (!section) return null;
     return (
-      <section key={`row-${section.id}`} className="sm:col-span-2 lg:col-span-3">
+      // The section reaches past the page gutter (-mx/px) because it skips
+      // painting outside its own box, and the row's hover panels and arrow
+      // buttons stick out a little.
+      <section key={`row-${section.id}`} className="offscreen-lazy -mx-4 min-w-0 px-4 sm:col-span-2 sm:-mx-3 sm:px-3 lg:col-span-3">
         <SectionHeader title={section.title} />
         <VideoRail videos={section.videos} />
       </section>

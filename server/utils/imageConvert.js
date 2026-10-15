@@ -3,9 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { createRequire } from "node:module";
 import sharp from "sharp";
 import decodeHeic from "heic-decode";
+import { ffmpegPath } from "./ffmpegBin.js";
 
 // Any picture people upload — JPG, PNG, WEBP, GIF, AVIF, TIFF, SVG, BMP,
 // iPhone HEIC, PSD, ICO… — is turned into one WebP that every browser shows
@@ -16,8 +16,7 @@ import decodeHeic from "heic-decode";
 //   2. iPhone HEIC/HEIF (HEVC inside) goes through heic-decode.
 //   3. Anything else (BMP, ICO, PSD, TGA, PCX, DDS, EXR…) through ffmpeg.
 
-const require = createRequire(import.meta.url);
-const FFMPEG = process.env.FFMPEG_PATH || require("ffmpeg-static");
+const FFMPEG = ffmpegPath();
 const MAX_SIDE = 3840;
 
 export const MAX_IMAGE_MB = Number(process.env.MAX_IMAGE_MB) || 100;

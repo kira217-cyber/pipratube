@@ -1,7 +1,8 @@
-import React from "react";
+import React, { useRef } from "react";
 import { Link } from "react-router";
 import { Radio } from "lucide-react";
 
+import { useRailGestures } from "../../hooks/useRailGestures";
 import { IMG, mediaUrl } from "../../utils/format";
 
 // Round channel avatar used for Live TV channels and creator channels.
@@ -58,9 +59,15 @@ const ChannelCircle = ({ name, logo, to, onClick, active, live, className = "" }
   );
 };
 
-export const ChannelRail = ({ children }) => (
-  <div className="no-scrollbar -mx-4 flex gap-4 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0">{children}</div>
-);
+export const ChannelRail = ({ children }) => {
+  const rail = useRef(null);
+  useRailGestures(rail);
+  return (
+    <div ref={rail} className="no-scrollbar -mx-4 flex gap-4 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0">
+      {children}
+    </div>
+  );
+};
 
 export const railItemClass = "w-[22%] shrink-0 sm:w-[15%] lg:w-[11%] xl:w-[9%]";
 

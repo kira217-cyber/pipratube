@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { isHls, playableSrc, useHlsSource } from "../../utils/hls";
+import { sizedImage } from "../../utils/format";
 import { Volume2, VolumeX } from "lucide-react";
 
 // YouTube-style inline preview for a video poster.
@@ -24,6 +25,16 @@ const canHover = () => typeof window !== "undefined" && window.matchMedia("(hove
 // Remembered for the visit, like YouTube's preview mute toggle.
 let previewMuted = true;
 
+// While the page (or a row) is scrolling, cards slide under a still mouse;
+// starting their previews then would load videos mid-scroll and make it
+// stutter. Previews wait until scrolling has stopped, like YouTube.
+let lastScrollAt = 0;
+if (typeof window !== "undefined") {
+  window.addEventListener("scroll", () => (lastScrollAt = performance.now()), { passive: true, capture: true });
+}
+const SCROLL_QUIET_MS = 250;
+const msSinceScroll = () => performance.now() - lastScrollAt;
+
 const formatClock = (seconds) => {
   if (!Number.isFinite(seconds) || seconds < 0) return "";
   const s = Math.floor(seconds);
@@ -33,7 +44,7 @@ const formatClock = (seconds) => {
   return h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
 };
 
-const VideoPreview = ({ id, src, poster, alt, autoplayInView = false, eager = false, duration, clipSeconds, minimal = false, className = "", children }) => {
+const VideoPreview = ({ id, src, poster, posterWidth, alt, autoplayInView = false, eager = false, duration, clipSeconds, minimal = false, className = "", children }) => {
   const boxRef = useRef(null);
   const videoRef = useRef(null);
   const timer = useRef(null);
@@ -50,6 +61,7 @@ const VideoPreview = ({ id, src, poster, alt, autoplayInView = false, eager = fa
 
   const stop = () => {
     window.clearTimeout(timer.current);
+    timer.current = 0;
     setActive(false);
     setReady(false);
   };
@@ -110,11 +122,25 @@ const VideoPreview = ({ id, src, poster, alt, autoplayInView = false, eager = fa
 
   useHlsSource(videoRef, src, { enabled: active });
 
+  const startWhenStill = () => {
+    timer.current = 0;
+    const since = msSinceScroll();
+    if (since < SCROLL_QUIET_MS) {
+      timer.current = window.setTimeout(startWhenStill, SCROLL_QUIET_MS - since + 50);
+      return;
+    }
+    start();
+  };
+
   const hoverProps = canHover()
     ? {
         onMouseEnter: () => {
           window.clearTimeout(timer.current);
-          timer.current = window.setTimeout(start, START_DELAY_MS);
+          timer.current = window.setTimeout(startWhenStill, START_DELAY_MS);
+        },
+        // Pointer resting on a card after a scroll: start then.
+        onMouseMove: () => {
+          if (!active && !timer.current) timer.current = window.setTimeout(startWhenStill, START_DELAY_MS);
         },
         onMouseLeave: stop,
       }
@@ -134,12 +160,19 @@ const VideoPreview = ({ id, src, poster, alt, autoplayInView = false, eager = fa
     <div ref={boxRef} className={`relative overflow-hidden ${className}`} {...hoverProps}>
       {poster && (
         <img
-          src={poster}
+          // A card-sized copy when asked (light to decode while scrolling).
+          src={sizedImage(poster, posterWidth)}
           alt={alt}
-          // A failed poster gets one retry (the API may have been restarting);
-          // after that the grey card shows instead of the alt text.
+          // A failed card-sized copy falls back to the original picture; a
+          // failed original gets one retry (the API may have been
+          // restarting); after that the grey card shows instead of the alt text.
           onError={(event) => {
             const img = event.currentTarget;
+            if (posterWidth && !img.dataset.original) {
+              img.dataset.original = "1";
+              img.src = poster;
+              return;
+            }
             if (img.dataset.retried) {
               img.style.visibility = "hidden";
               return;

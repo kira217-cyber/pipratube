@@ -79,5 +79,7 @@ export const streamUrls = (guid, info = {}) => {
     hls: `${base}/playlist.m3u8`,
     mp4: mp4Height ? `${base}/play_${mp4Height}p.mp4` : null,
     thumbnail: `${base}/${info.thumbnailFileName || "thumbnail.jpg"}`,
+    // The file exactly as uploaded — available as soon as the upload ends.
+    original: `${base}/original`,
   };
 };

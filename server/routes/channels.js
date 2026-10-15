@@ -63,7 +63,7 @@ const applyBranding = async (channel, files = {}) => {
     const file = files[key]?.[0];
     if (!file) continue;
     const previous = channel[key]?.fileName;
-    channel[key] = await storeImage(file, `channel-${key}`);
+    channel[key] = await storeImage(file, `channel-${key}`, { screen: true });
     removeStored(previous);
   }
 };
@@ -98,7 +98,7 @@ router.post("/", requireUser, brandingFields, async (req, res) => {
     return successResponse(res, "Channel created", { channel: publicChannel(channel) }, 201);
   } catch (error) {
     if (error?.code === 11000) return errorResponse(res, "That handle is already taken", 409);
-    return errorResponse(res, error.message, 500);
+    return errorResponse(res, error.message, error.status || 500);
   }
 });
 
@@ -135,7 +135,7 @@ router.patch("/me", requireUser, brandingFields, async (req, res) => {
     return successResponse(res, "Channel updated", { channel: publicChannel(channel) });
   } catch (error) {
     if (error?.code === 11000) return errorResponse(res, "That handle is already taken", 409);
-    return errorResponse(res, error.message, 500);
+    return errorResponse(res, error.message, error.status || 500);
   }
 });
 

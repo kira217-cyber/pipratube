@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
-import { ExternalLink, EyeOff, Pencil, RotateCcw, Trash2, Upload } from "lucide-react";
+import { ExternalLink, EyeOff, Pencil, Play, RotateCcw, Trash2, Upload } from "lucide-react";
 
 import { EmptyState, PageHeader, Spinner } from "../components/ui";
+import { isOnSite } from "../utils/videos";
+import VideoPreviewModal from "../components/VideoPreviewModal";
 import { Badge, Btn, Modal, Pager, SearchInput, Select, TextArea, TextInput, Toggle } from "../components/kit";
 import { apiError, get, send, SITE_URL } from "../api/client";
 import { usePaged } from "../hooks/usePaged";
@@ -223,6 +225,7 @@ const Videos = () => {
   const list = usePaged("/api/admin/videos", { status: status || undefined, type: type || undefined, visibility: visibility || undefined, sort });
   const [editing, setEditing] = useState(null);
   const [removing, setRemoving] = useState(null);
+  const [watching, setWatching] = useState(null);
 
   const restore = async (video) => {
     try {
@@ -255,7 +258,7 @@ const Videos = () => {
 
       <div className="flex flex-wrap gap-2">
         <SearchInput value={list.search} onChange={list.setSearch} placeholder="Search title or tag" />
-        <Select value={status} onChange={setStatus} options={[["", "Any status"], ["published", "Published"], ["removed", "Removed"]]} />
+        <Select value={status} onChange={setStatus} options={[["", "Any status"], ["published", "Published"], ["review", "In review"], ["processing", "Processing"], ["failed", "Failed"], ["removed", "Removed"]]} />
         <Select value={type} onChange={setType} options={[["", "Videos & Shorts"], ["videos", "Videos"], ["shorts", "Shorts"]]} />
         <Select value={visibility} onChange={setVisibility} options={[["", "Any visibility"], ["public", "Public"], ["unlisted", "Unlisted"], ["private", "Private"]]} />
         <Select value={sort} onChange={setSort} options={[["newest", "Newest"], ["oldest", "Oldest"], ["views", "Most viewed"], ["likes", "Most liked"]]} />
@@ -270,17 +273,22 @@ const Videos = () => {
           <div className="divide-y divide-line rounded-2xl border border-line bg-card">
             {list.items.map((v) => (
               <div key={v.id} className="flex flex-wrap items-center gap-3 p-3 sm:flex-nowrap">
-                <div className="relative w-32 shrink-0 overflow-hidden rounded-lg bg-card-2 sm:w-40">
+                <button type="button" onClick={() => setWatching(v)} title="Play" className="group relative w-32 shrink-0 cursor-pointer overflow-hidden rounded-lg bg-card-2 sm:w-40">
                   {v.thumbnail && <img src={v.thumbnail} alt="" className="aspect-video w-full object-cover" />}
+                  <span className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition group-hover:opacity-100">
+                    <Play className="h-7 w-7 fill-white" />
+                  </span>
                   <span className="absolute bottom-1 right-1 rounded bg-black/80 px-1 text-[11px] font-semibold">{v.duration}</span>
-                </div>
+                </button>
                 <div className="min-w-0 flex-1">
                   <p className="line-clamp-2 text-sm font-semibold">{v.title}</p>
                   <p className="mt-0.5 truncate text-xs text-muted">
                     {v.channel?.name} · {fullDate(v.createdAt)} · {formatCount(v.views)} views · {formatCount(v.likes)} likes · {formatCount(v.commentCount)} comments
                   </p>
                   <div className="mt-1.5 flex flex-wrap gap-1.5">
-                    {v.status === "processing" ? (
+                    {v.status === "review" ? (
+                      <Badge tone="red">In review (adult content)</Badge>
+                    ) : v.status === "processing" ? (
                       <Badge tone="blue">Processing {v.processing?.percent || 0}%</Badge>
                     ) : v.status === "failed" ? (
                       <Badge tone="red">Failed: {v.processing?.error || "couldn't process"}</Badge>
@@ -294,9 +302,15 @@ const Videos = () => {
                   </div>
                 </div>
                 <div className="flex w-full shrink-0 gap-1.5 sm:w-auto">
-                  <a href={`${SITE_URL}/watch/${v.id}`} target="_blank" rel="noreferrer" title="Open on site" className="flex h-9 w-9 items-center justify-center rounded-lg border border-line hover:bg-white/10">
-                    <ExternalLink className="h-4 w-4" />
-                  </a>
+                  {isOnSite(v) ? (
+                    <a href={`${SITE_URL}/watch/${v.id}`} target="_blank" rel="noreferrer" title="Open on site" className="flex h-9 w-9 items-center justify-center rounded-lg border border-line hover:bg-white/10">
+                      <ExternalLink className="h-4 w-4" />
+                    </a>
+                  ) : (
+                    <Btn onClick={() => setWatching(v)} title="Not on the site — play it here">
+                      <Play className="h-4 w-4" />
+                    </Btn>
+                  )}
                   <Btn onClick={() => setEditing(v)} title="Edit">
                     <Pencil className="h-4 w-4" />
                   </Btn>
@@ -330,6 +344,7 @@ const Videos = () => {
           }}
         />
       )}
+      {watching && <VideoPreviewModal video={watching} onClose={() => setWatching(null)} />}
       {removing && (
         <RemoveVideo
           video={removing}

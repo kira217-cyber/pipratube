@@ -9,6 +9,15 @@ export const mediaUrl = (path, width) => {
   return import.meta.env.DEV ? path : `${API_ORIGIN}${path}`;
 };
 
+// A stored picture (".../uploads/images/x.webp") at `width` px, made by the
+// API (routes/img.js) — cards load a few KB instead of a 1080×1920 original.
+// Anything else (CDN pictures, blobs) comes back unchanged.
+export const sizedImage = (url, width) => {
+  if (!url || !width) return url;
+  const match = String(url).match(/^(https?:\/\/[^/]+)?\/uploads\/images\/([^/?#]+)$/);
+  return match ? `${match[1] || ""}/api/img/${width}/images/${match[2]}` : url;
+};
+
 // Standard sizes, so the same image is resized (and cached) only once.
 export const IMG = { avatar: 160, logo: 240, card: 480, portrait: 360, hero: 1280 };
 

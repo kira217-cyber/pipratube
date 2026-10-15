@@ -10,6 +10,7 @@ import { publicUrl } from "../utils/localFiles.js";
 import { Playlist, Reaction, Subscription, WatchHistory } from "../models/Engagement.js";
 import Report, { REPORT_REASONS } from "../models/Report.js";
 import { rankedVideoIds, searchQuery, searchWords } from "../utils/search.js";
+import { holdIfReported } from "../utils/moderation/flow.js";
 
 // Public viewing side: feeds, Shorts, search, a single video.
 const router = express.Router();
@@ -273,7 +274,7 @@ router.post("/:id/share", async (req, res) => {
 router.post("/:id/report", optionalUser, async (req, res) => {
   try {
     if (!mongoose.isValidObjectId(req.params.id)) return errorResponse(res, "Video not found", 404);
-    const video = await Video.findById(req.params.id).select("_id");
+    const video = await Video.findById(req.params.id);
     if (!video) return errorResponse(res, "Video not found", 404);
     const reason = String(req.body?.reason || "");
     if (!REPORT_REASONS[reason]) return errorResponse(res, "Choose a reason", 400);
@@ -286,6 +287,11 @@ router.post("/:id/report", optionalUser, async (req, res) => {
       { $set: { reason, details: String(req.body?.details || "").trim().slice(0, 500) }, $setOnInsert: { video: video._id, ...who } },
       { upsert: true },
     );
+    // Enough signed-in viewers calling it sexual hides it until reviewed.
+    if (req.user && ["sexual", "child_abuse"].includes(reason)) {
+      const reporters = await Report.distinct("reporter", { video: video._id, status: "open", reason: { $in: ["sexual", "child_abuse"] }, reporter: { $ne: null } });
+      await holdIfReported(video, reporters.length);
+    }
     return successResponse(res, "Thanks for reporting — our team will review this video.");
   } catch (error) {
     return errorResponse(res, error.message, 500);

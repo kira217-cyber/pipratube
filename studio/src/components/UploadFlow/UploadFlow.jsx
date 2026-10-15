@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { SITE_URL } from "../../api/axios";
-import { Check, Copy, Share2, Volume2, VolumeX, X } from "lucide-react";
+import { Check, Copy, Share2, ShieldAlert, Volume2, VolumeX, X } from "lucide-react";
 
 import { confirmDialog, toast } from "../../utils/alerts";
 
@@ -204,7 +204,7 @@ const ShareScreen = ({ file, src, portrait, video, onDone }) => {
       <h1 className="mt-1 text-2xl font-bold sm:text-3xl">Choose where to share</h1>
       <p className="mt-2 max-w-sm text-sm text-white/80 sm:text-base">
         {video.status === "processing"
-          ? `Uploaded! Your ${isShort ? "Short" : "video"} goes live on PipraTube in a few minutes, as soon as it's ready — My videos shows when. You can share the link now.`
+          ? `Uploaded! Your ${isShort ? "Short" : "video"} is being checked and goes live on PipraTube in a moment — My videos shows when. You can share the link now.`
           : `Your ${isShort ? "Short" : "video"} is live on PipraTube. Share it so more people can watch.`}
       </p>
 
@@ -240,15 +240,53 @@ const ShareScreen = ({ file, src, portrait, video, onDone }) => {
   );
 };
 
+// Shown instead of the share screen when the adult-content check held the
+// video back: it isn't public, and the creator sees exactly why.
+const ReviewScreen = ({ src, portrait, video, onDone }) => (
+  <div className="flex min-h-full flex-col items-center px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] text-center">
+    <span className="mt-2 flex h-16 w-16 items-center justify-center rounded-full bg-[#e3172f]/15 ring-2 ring-[#e3172f]/60">
+      <ShieldAlert className="h-8 w-8 text-[#ff6b81]" />
+    </span>
+    <h1 className="mt-4 text-2xl font-bold sm:text-3xl">Your video is under review</h1>
+    <div className="mt-4 w-full max-w-xl rounded-2xl border-2 border-[#e3172f] bg-[#e3172f]/15 p-4 text-left sm:p-5">
+      <p className="text-base font-bold text-[#ff6b81] sm:text-lg">Why: adult / sexual content was found</p>
+      <p className="mt-2 text-[15px] leading-relaxed text-white/90">
+        Our automatic check found sexual or adult scenes in <b>“{video.title}”</b>. Adult content isn't allowed on PipraTube, so this video is <b>not public</b>.
+      </p>
+      <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-white/80">
+        <li>Our team will review it. If it's fine, it goes live with the visibility you chose.</li>
+        <li>If it's removed, your account gets a strike. After 3 strikes the account is blocked.</li>
+        <li>If this video breaks the rules, please delete it from Content.</li>
+      </ul>
+    </div>
+    <div className={`relative mt-5 overflow-hidden rounded-[28px] bg-black opacity-60 ${portrait ? "aspect-[9/16] h-[min(36dvh,380px)]" : "aspect-video w-[min(92vw,520px)]"}`}>
+      {src && <video src={src} muted playsInline className="h-full w-full object-cover blur-md" />}
+    </div>
+    <button type="button" onClick={onDone} className="bg-brand-gradient mt-6 w-full max-w-sm cursor-pointer rounded-xl py-3 text-sm font-semibold">
+      Go to Content
+    </button>
+  </div>
+);
+
 // `upload` comes from useUploadProgress; `published` is the saved video once
 // the server confirms, which swaps the progress view for the share screen.
-const UploadFlow = ({ upload, file, portrait, published, onCancel, onDone, onRetry }) => {
+const UploadFlow = ({ upload, check, file, portrait, published, onCancel, onDone, onRetry }) => {
   const src = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
-  useEffect(() => () => src && URL.revokeObjectURL(src), [src]);
+  // Freed a moment after the screen closes — not straight away, because
+  // React's dev mode unmounts and remounts once, which would break the video.
+  const revokeTimer = useRef(null);
+  useEffect(() => {
+    clearTimeout(revokeTimer.current);
+    return () => {
+      revokeTimer.current = setTimeout(() => src && URL.revokeObjectURL(src), 1000);
+    };
+  }, [src]);
 
   if (!upload?.active && !published) return null;
 
   const { status, percent, remaining, error } = upload;
+  // All bytes are up and the browser's check is still finishing.
+  const checking = status === "uploading" && check?.state === "running" && Number(percent || 0) >= 99;
   const shown = published ? 100 : Number(percent || 0);
 
   const close = async () => {
@@ -269,7 +307,11 @@ const UploadFlow = ({ upload, file, portrait, published, onCancel, onDone, onRet
         </div>
 
         {published ? (
-          <ShareScreen file={file} src={src} portrait={portrait} video={published} onDone={onDone} />
+          published.heldForReview || published.status === "review" ? (
+            <ReviewScreen src={src} portrait={portrait} video={published} onDone={onDone} />
+          ) : (
+            <ShareScreen file={file} src={src} portrait={portrait} video={published} onDone={onDone} />
+          )
         ) : (
           <div className="flex flex-1 flex-col items-center px-4 pb-10 text-center">
             {status === "error" ? (
@@ -279,6 +321,8 @@ const UploadFlow = ({ upload, file, portrait, published, onCancel, onDone, onRet
               </>
             ) : (
               <>
+                {/* Step label: Uploading → Checking video → done. */}
+                <p className="mb-1 text-sm font-semibold uppercase tracking-wider text-white/60">{checking ? "Checking video" : status === "done" ? "Done" : "Uploading"}</p>
                 <p className="text-2xl font-bold tabular-nums">{Math.round(shown)}%</p>
                 <p className="mt-2 max-w-sm text-[15px] leading-snug text-white/85">
                   {status === "cancelling"
@@ -288,7 +332,14 @@ const UploadFlow = ({ upload, file, portrait, published, onCancel, onDone, onRet
                       : "Please don't close the app. You can choose where to share your video next."}
                 </p>
                 <p className="mt-1.5 h-5 text-xs text-white/45">
-                  {status === "uploading" && (remaining === null ? "Estimating time…" : remaining > 0 ? `About ${formatCountdown(remaining)} left` : "Finishing up…")}
+                  {status === "uploading" &&
+                    (checking
+                      ? `Checking your video for safety… ${check.percent || 0}%`
+                      : remaining === null
+                        ? "Estimating time…"
+                        : remaining > 0
+                          ? `About ${formatCountdown(remaining)} left`
+                          : "Finishing up…")}
                   {status === "done" && "Opening share options…"}
                 </p>
               </>

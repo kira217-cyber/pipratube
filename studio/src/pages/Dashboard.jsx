@@ -9,6 +9,7 @@ import { useAuth } from "../context/AuthContext";
 import { useFetch } from "../hooks/useFetch";
 import { categoryLabel } from "../utils/categories";
 import { channelPath, formatCount, timeAgo, viewsText } from "../utils/format";
+import ReviewWarning from "../components/ReviewWarning";
 import { VisibilityPill } from "./MyVideos";
 
 const StatTile = ({ icon: Icon, label, value, color }) => (
@@ -47,6 +48,8 @@ const Dashboard = () => {
           <CloudUpload className="h-5 w-5" /> Upload
         </Link>
       </PageHeader>
+
+      <ReviewWarning />
 
       <Card className="flex items-center gap-3 p-4">
         <Avatar src={channel.avatar} name={channel.name} size="h-12 w-12" ring={false} />

@@ -2,7 +2,6 @@ import React, { useEffect, useState } from "react";
 import { X } from "lucide-react";
 
 import { useFetch } from "../../hooks/useFetch";
-import { Logo } from "../ui/ui";
 
 // The corners of the Live TV player, managed in Admin → Live TV overlays:
 //
@@ -12,7 +11,7 @@ import { Logo } from "../ui/ui";
 //             `durationSeconds`, then come back every `intervalSeconds`.
 //             While one is up it takes its corner's place.
 //
-// With no logo set, the PipraTube logo shows top right as before.
+// With no logo set for a channel, its corner stays empty.
 // `logoOnly` (Home's Live TV card) shows just the logo, never the ads.
 
 const CORNER = {
@@ -67,17 +66,14 @@ const LiveTvOverlays = ({ channelId, logoOnly = false }) => {
 
   return (
     <div className="pointer-events-none absolute inset-0 z-10">
-      {!showing[logoCorner] &&
-        (logo ? (
-          // On Home's card the whole card is already a link — no link inside a link.
-          <Linked url={logoOnly ? "" : logo.url} className={`absolute ${CORNER[logoCorner]}`}>
-            <img src={logo.media} alt={logo.title} className={`${LOGO_SIZE[logo.size] || LOGO_SIZE.medium} w-auto max-w-[40vw] object-contain drop-shadow-[0_2px_6px_rgba(0,0,0,0.7)]`} />
-          </Linked>
-        ) : (
-          <span className="absolute right-3 top-2">
-            <Logo className="h-9 opacity-95 drop-shadow-[0_2px_6px_rgba(0,0,0,0.7)] sm:h-12" />
-          </span>
-        ))}
+      {/* Only a logo the admin set for this channel (or for all channels) —
+          nothing at all otherwise. On Home's card the whole card is already
+          a link, so no link inside a link. */}
+      {logo && !showing[logoCorner] && (
+        <Linked url={logoOnly ? "" : logo.url} className={`absolute ${CORNER[logoCorner]}`}>
+          <img src={logo.media} alt={logo.title} className={`${LOGO_SIZE[logo.size] || LOGO_SIZE.medium} w-auto max-w-[40vw] object-contain drop-shadow-[0_2px_6px_rgba(0,0,0,0.7)]`} />
+        </Linked>
+      )}
 
       {Object.entries(showing).map(([corner, ad]) => (
         <div key={ad.id} className={`absolute ${CORNER[corner]} ${AD_SIZE[ad.size] || AD_SIZE.medium}`}>

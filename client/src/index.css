@@ -46,6 +46,19 @@ body {
   display: none;
 }
 
+/* Smooth scrolling on long pages (Home):
+   • sections that are off screen aren't laid out or painted until they come
+     near the viewport (the browser remembers their height, so nothing jumps);
+   • while the page is scrolling, cards passing under a still mouse don't run
+     their hover effects / previews — that work made scrolling stutter. */
+.offscreen-lazy {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 340px;
+}
+html.is-scrolling main {
+  pointer-events: none;
+}
+
 /* Space for the fixed bottom navigation (and the iPhone home indicator)
    so the last row of a page is never hidden behind it. */
 .pb-bottom-nav {

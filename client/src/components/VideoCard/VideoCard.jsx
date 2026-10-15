@@ -7,6 +7,7 @@ import VideoPreview from "../VideoPreview/VideoPreview";
 import { channelPath, videoId, videoMeta } from "../../utils/format";
 import VideoMenu from "../VideoMenu/VideoMenu";
 import HiddenNotice from "../VideoMenu/HiddenNotice";
+import { useRailGestures } from "../../hooks/useRailGestures";
 import { hiddenReason, useVideoPrefs } from "../../utils/videoPrefs";
 
 const Thumb = ({ video, className = "aspect-video", autoplayInView = false }) => (
@@ -14,6 +15,7 @@ const Thumb = ({ video, className = "aspect-video", autoplayInView = false }) =>
     id={`card-${videoId(video)}-${className}`}
     src={video.videoUrl}
     poster={video.thumbnail}
+    posterWidth={480}
     alt={video.title}
     duration={video.duration}
     autoplayInView={autoplayInView}
@@ -64,11 +66,14 @@ export const VideoRail = ({ videos, showChannel = true, limit = 10 }) => {
   const [edges, setEdges] = useState({ start: true, end: true });
   const [expanded, setExpanded] = useState(false);
   const shown = expanded ? videos : videos.slice(0, limit);
+  useRailGestures(rail, expanded);
 
   const measure = useCallback(() => {
     const el = rail.current;
     if (!el) return;
-    setEdges({ start: el.scrollLeft <= 4, end: el.scrollLeft + el.clientWidth >= el.scrollWidth - 4 });
+    const next = { start: el.scrollLeft <= 4, end: el.scrollLeft + el.clientWidth >= el.scrollWidth - 4 };
+    // Only re-render when an arrow actually appears or goes — not on every scroll frame.
+    setEdges((prev) => (prev.start === next.start && prev.end === next.end ? prev : next));
   }, []);
 
   useEffect(() => {
@@ -126,7 +131,9 @@ export const VideoRail = ({ videos, showChannel = true, limit = 10 }) => {
               event.stopPropagation();
             }
           }}
-          className="no-scrollbar -mx-4 flex snap-x scroll-px-4 gap-3 overflow-x-auto px-4 sm:mx-0 sm:scroll-px-0 sm:px-0"
+          // py-2/px-2 leave room for the hover panel, which reaches 8px past
+          // each card — without it the row's edge cut the hover off.
+          className="no-scrollbar -mx-4 -my-2 flex snap-x scroll-px-4 gap-3 overflow-x-auto px-4 py-2 sm:-mx-2 sm:scroll-px-2 sm:px-2"
         >
           {shown.map((video) => (
             <VideoCard

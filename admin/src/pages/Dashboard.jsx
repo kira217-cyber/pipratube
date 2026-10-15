@@ -7,6 +7,8 @@ import { Card, PageHeader, Spinner } from "../components/ui";
 import { Badge } from "../components/kit";
 import { get, SITE_URL } from "../api/client";
 import { formatCount, timeAgo } from "../utils/format";
+import { isOnSite } from "../utils/videos";
+import VideoPreviewModal from "../components/VideoPreviewModal";
 
 const Tile = ({ icon: Icon, label, value, sub, color }) => (
   <Card className="p-4">
@@ -19,7 +21,9 @@ const Tile = ({ icon: Icon, label, value, sub, color }) => (
   </Card>
 );
 
-const VideoList = ({ title, videos, metric }) => (
+const VideoList = ({ title, videos, metric }) => {
+  const [watching, setWatching] = useState(null);
+  return (
   <Card className="p-4">
     <p className="mb-3 font-semibold">{title}</p>
     {videos.length === 0 ? (
@@ -28,9 +32,15 @@ const VideoList = ({ title, videos, metric }) => (
       <ul className="divide-y divide-line">
         {videos.map((v) => (
           <li key={v.id} className="flex items-center gap-3 py-2.5">
-            <a href={`${SITE_URL}/watch/${v.id}`} target="_blank" rel="noreferrer" className="w-24 shrink-0 overflow-hidden rounded-lg bg-card-2">
-              {v.thumbnail && <img src={v.thumbnail} alt="" className="aspect-video w-full object-cover" />}
-            </a>
+            {isOnSite(v) ? (
+              <a href={`${SITE_URL}/watch/${v.id}`} target="_blank" rel="noreferrer" className="w-24 shrink-0 overflow-hidden rounded-lg bg-card-2">
+                {v.thumbnail && <img src={v.thumbnail} alt="" className="aspect-video w-full object-cover" />}
+              </a>
+            ) : (
+              <button type="button" onClick={() => setWatching(v)} className="w-24 shrink-0 cursor-pointer overflow-hidden rounded-lg bg-card-2">
+                {v.thumbnail && <img src={v.thumbnail} alt="" className="aspect-video w-full object-cover" />}
+              </button>
+            )}
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium">{v.title}</p>
               <p className="truncate text-xs text-muted">
@@ -42,8 +52,10 @@ const VideoList = ({ title, videos, metric }) => (
         ))}
       </ul>
     )}
+    {watching && <VideoPreviewModal video={watching} onClose={() => setWatching(null)} />}
   </Card>
-);
+  );
+};
 
 const Dashboard = () => {
   const [data, setData] = useState(null);

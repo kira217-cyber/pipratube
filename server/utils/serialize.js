@@ -18,6 +18,7 @@ export const publicUser = (user) => ({
   phone: user.phone || null,
   avatar: publicUrl(user.avatar?.url) || null,
   phoneVerified: Boolean(user.phoneVerified),
+  emailVerified: Boolean(user.emailVerified),
   status: user.status,
   createdAt: user.createdAt,
 });
@@ -66,7 +67,7 @@ export const publicVideo = (video, { owner = false } = {}) => {
     // A plain MP4 every <video> plays (Bunny Stream's MP4 copy when there is
     // one); hlsUrl is the adaptive stream the main players use for quality.
     videoUrl: video.file?.fallbackUrl || video.file?.url || null,
-    hlsUrl: video.file?.provider === "stream" && video.file?.url ? video.file.url : null,
+    hlsUrl: video.file?.provider === "stream" && /\.m3u8($|\?)/.test(video.file?.url || "") ? video.file.url : null,
     durationSeconds: video.durationSeconds,
     duration: formatDuration(video.durationSeconds),
     isShort: Boolean(video.isShort),
@@ -94,6 +95,10 @@ export const publicVideo = (video, { owner = false } = {}) => {
         ? { stage: video.processing?.stage || "checking", percent: video.processing?.percent || 0, error: video.processing?.error || null }
         : null,
       file: { provider: video.file?.provider, size: video.file?.size || 0, mimeType: video.file?.mimeType || null },
+      moderation:
+        video.status === "review" || ["flagged", "rejected"].includes(video.moderation?.status)
+          ? { status: video.moderation.status, reason: video.moderation.reason || null, flaggedAt: video.moderation.flaggedAt || null }
+          : null,
       updatedAt: video.updatedAt,
     });
   }

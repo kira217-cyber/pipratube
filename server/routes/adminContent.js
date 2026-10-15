@@ -18,6 +18,7 @@ import { job as importJob, runImport } from "../utils/importOld.js";
 import Report, { REPORT_REASONS } from "../models/Report.js";
 import { videoFromUpload } from "../utils/uploadToVideo.js";
 import { videoFromStream } from "../utils/streamVideos.js";
+import { approveVideo, rejectVideo } from "../utils/moderation/flow.js";
 
 // Admin panel: dashboard numbers and moderation of everything users made.
 const router = express.Router();
@@ -52,6 +53,59 @@ const destroyVideo = async (video) => {
   ]);
   await video.deleteOne();
 };
+
+// ================= adult-content review =================
+// Videos the automatic check held back, and what admins decided.
+
+const shapeReview = (v) => ({
+  ...publicVideo(v, { owner: true }),
+  owner: v.owner ? { id: v.owner._id, name: v.owner.name, email: v.owner.email, strikes: v.owner.strikes || 0, status: v.owner.status } : null,
+  hlsUrl: v.file?.url || null,
+  moderationDetail: {
+    status: v.moderation?.status,
+    flaggedBy: v.moderation?.flaggedBy,
+    flaggedAt: v.moderation?.flaggedAt,
+    deletedByOwner: Boolean(v.moderation?.deletedByOwner),
+    client: v.moderation?.client?.verdict ? { verdict: v.moderation.client.verdict, adultFrames: v.moderation.client.adultFrames, peak: v.moderation.client.peak, checked: v.moderation.client.checked } : null,
+    server: v.moderation?.server?.state ? { state: v.moderation.server.state, verdict: v.moderation.server.verdict, adultFrames: v.moderation.server.adultFrames, peak: v.moderation.server.peak, checked: v.moderation.server.checked } : null,
+    evidence: (v.moderation?.evidence || []).map((e) => ({ t: e.t, image: e.image?.url || null, scores: e.scores, source: e.source })),
+    reviewedAt: v.moderation?.reviewedAt || null,
+    note: v.moderation?.note || null,
+  },
+});
+
+// GET /api/admin/moderation?tab=review|rejected|approved
+router.get("/moderation", requireAdmin("videos"), async (req, res) => {
+  const tab = ["review", "rejected", "approved"].includes(req.query.tab) ? req.query.tab : "review";
+  const filter = tab === "review" ? { "moderation.status": "flagged" } : { "moderation.status": tab };
+  const { page, limit } = pageOf(req, 20);
+  const [videos, total, counts] = await Promise.all([
+    Video.find(filter).sort({ "moderation.flaggedAt": -1, createdAt: -1 }).skip((page - 1) * limit).limit(limit).populate("channel").populate("owner", "name email strikes status"),
+    Video.countDocuments(filter),
+    Video.aggregate([{ $match: { "moderation.status": { $in: ["flagged", "rejected", "approved"] } } }, { $group: { _id: "$moderation.status", n: { $sum: 1 } } }]),
+  ]);
+  const count = Object.fromEntries(counts.map((c) => [c._id, c.n]));
+  return successResponse(res, "Moderation", {
+    ...paged(videos.map(shapeReview), total, page, limit),
+    counts: { review: count.flagged || 0, rejected: count.rejected || 0, approved: count.approved || 0 },
+  });
+});
+
+router.post("/moderation/:id/approve", requireAdmin("videos"), async (req, res) => {
+  const video = isId(req.params.id) ? await Video.findById(req.params.id) : null;
+  if (!video) return errorResponse(res, "Video not found", 404);
+  if (video.moderation?.deletedByOwner) return errorResponse(res, "The creator deleted this video — it can only be rejected or left as is", 409);
+  await approveVideo(video, req.admin._id);
+  return successResponse(res, "Approved — the video is live");
+});
+
+router.post("/moderation/:id/reject", requireAdmin("videos"), async (req, res) => {
+  const video = isId(req.params.id) ? await Video.findById(req.params.id) : null;
+  if (!video) return errorResponse(res, "Video not found", 404);
+  if (video.moderation?.status === "rejected") return errorResponse(res, "Already rejected", 409);
+  const result = await rejectVideo(video, req.admin._id, req.body?.note, removeStored);
+  return successResponse(res, result.blocked ? "Rejected — the account reached 3 strikes and was blocked" : `Rejected — strike ${result.strikes} for this account`, result);
+});
 
 // ================= dashboard =================
 
@@ -122,7 +176,7 @@ router.get("/videos", requireAdmin("videos"), async (req, res) => {
   try {
     const { search, status, type, visibility, channel, sort } = req.query;
     const filter = {};
-    if (status === "removed" || status === "published") filter.status = status;
+    if (["published", "review", "processing", "failed", "removed"].includes(status)) filter.status = status;
     if (type === "shorts") filter.isShort = true;
     if (type === "videos") filter.isShort = false;
     if (VISIBILITIES.includes(visibility)) filter.visibility = visibility;
@@ -192,7 +246,10 @@ router.post("/videos", requireAdmin("videos"), handleUpload(videoUpload), discar
         guid: req.body.streamGuid,
         uploader: `admin:${req.admin._id}`,
         fields: { channel: channel._id, owner: channel.owner, title: req.body.title, thumbnail: thumbFile ? await storeImage(thumbFile, "thumb") : {} },
-        apply: (v) => applyVideoFields(v, req.body || {}),
+        apply: (v) => {
+          applyVideoFields(v, req.body || {});
+          v.moderation.status = "exempt";
+        },
       });
       await video.populate("channel");
       return successResponse(res, "Uploaded — processing", { video: publicVideo(video, { owner: true }) }, 201);
@@ -204,7 +261,10 @@ router.post("/videos", requireAdmin("videos"), handleUpload(videoUpload), discar
         uploadId: req.body.sourceUploadId,
         uploader: `admin:${req.admin._id}`,
         fields: { channel: channel._id, owner: channel.owner, title: req.body.title, thumbnail: thumbFile ? await storeImage(thumbFile, "thumb") : {} },
-        apply: (v) => applyVideoFields(v, req.body || {}),
+        apply: (v) => {
+          applyVideoFields(v, req.body || {});
+          v.moderation.status = "exempt";
+        },
       });
       await video.populate("channel");
       return successResponse(res, "Uploaded — processing", { video: publicVideo(video, { owner: true }) }, 201);

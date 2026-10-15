@@ -1,12 +1,28 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router";
 import { Eye, EyeOff, Lock, UserRound } from "lucide-react";
 
 import AuthShell from "./AuthShell";
 import { Field, PrimaryButton, inputClass } from "../../components/ui/ui";
 import { useAuth } from "../../context/AuthContext";
-import { apiError } from "../../api/studioApi";
+import { apiError, studioApi } from "../../api/studioApi";
 import { toast } from "../../utils/alerts";
+
+// Which ways to sign in the admin has left on (GET /api/auth/options).
+const useLoginLabel = () => {
+  const [label, setLabel] = useState(["Email or phone", "you@example.com or 01XXXXXXXXX"]);
+  useEffect(() => {
+    studioApi
+      .get("/api/auth/options")
+      .then(({ data }) => {
+        const { phone, email } = data.data;
+        if (phone?.login && !email?.login) setLabel(["Mobile number", "01XXXXXXXXX"]);
+        else if (email?.login && !phone?.login) setLabel(["Email", "you@example.com"]);
+      })
+      .catch(() => {});
+  }, []);
+  return label;
+};
 
 const Login = () => {
   const { user, login } = useAuth();
@@ -16,6 +32,7 @@ const Login = () => {
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [fieldLabel, fieldPlaceholder] = useLoginLabel();
 
   const target = location.state?.from || "/";
 
@@ -49,12 +66,12 @@ const Login = () => {
       }
     >
       <form onSubmit={submit} className="space-y-4">
-        <Field label="Email or phone" icon={UserRound} required>
+        <Field label={fieldLabel} icon={UserRound} required>
           <input
             required
             value={identifier}
             onChange={(event) => setIdentifier(event.target.value)}
-            placeholder="you@example.com or 01XXXXXXXXX"
+            placeholder={fieldPlaceholder}
             autoComplete="username"
             className={inputClass}
           />

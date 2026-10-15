@@ -9,6 +9,7 @@ import { useFetch } from "../hooks/useFetch";
 import { isUploadCancelled, useUploadProgress } from "../hooks/useUploadProgress";
 import { compressImage, formatBytes, IMAGE_ACCEPT, inspectVideo } from "../utils/media";
 import { isVideoFile, MAX_UPLOAD_GB, uploadVideoFile, VIDEO_ACCEPT } from "../utils/chunkedUpload";
+import { checkVideoFile, isAdultPicture } from "../utils/videoCheck";
 import { viewsText } from "../utils/format";
 import { VIDEO_CATEGORIES } from "../utils/categories";
 import { playableSrc, useHlsSource } from "../utils/hls";
@@ -311,6 +312,10 @@ const DetailsForm = ({ mode, video, file, meta, onSubmit, submitting }) => {
                     const picked = event.target.files?.[0];
                     event.target.value = "";
                     if (!picked) return;
+                    if (await isAdultPicture(picked)) {
+                      toast.error("This picture looks like adult content, which isn't allowed on PipraTube — please choose another one");
+                      return;
+                    }
                     const size = await imageSize(picked);
                     const wanted = spec.width / spec.height;
                     setThumbNote(
@@ -476,6 +481,7 @@ const VideoEditor = ({ mode }) => {
 
   const [file, setFile] = useState(null);
   const [meta, setMeta] = useState(null);
+  const [check, setCheck] = useState({ state: "idle", percent: 0 }); // the browser's adult-content check
   const [reading, setReading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [published, setPublished] = useState(null);
@@ -523,20 +529,38 @@ const VideoEditor = ({ mode }) => {
     }
 
     // 1) the file goes up — straight to Bunny Stream (the percentage is
-    //    exactly that),
-    // 2) the video is created — that's 100%. Converting and saving to
-    //    storage then happen on the server in the background, like YouTube:
-    //    nobody has to wait for it, and My videos shows when it's live.
+    //    exactly that) — while this browser checks it for adult content
+    //    from the local copy (no network, so the upload keeps its speed),
+    // 2) the video is created with the check's answer — that's 100%.
+    //    Bunny then encodes it and the server checks it again; a clean
+    //    video goes live, a flagged one waits for an admin.
     try {
       const signal = start({ fileName: file.name, fileSize: file.size });
+      setCheck({ state: "running", percent: 0 });
+      const checking = (meta?.unreadable ? Promise.resolve(null) : checkVideoFile(file, { onProgress: (percent) => setCheck((c) => ({ ...c, percent })) })).catch(() => null);
       const uploaded = await uploadVideoFile(file, { signal, onProgress: (sent, total) => reportSent(sent, total) });
       Object.entries(uploaded).forEach(([key, value]) => body.append(key, value));
-      const { data: result } = await studioApi.post("/api/studio/videos", body, { signal });
+      // What this browser read from the file, so the video can go live at
+      // once even before the server has read it.
+      if (uploaded.streamGuid && meta?.durationSeconds) {
+        body.append("durationSeconds", String(meta.durationSeconds));
+        body.append("width", String(meta.width || 0));
+        body.append("height", String(meta.height || 0));
+      }
+
+      const result = await checking;
+      setCheck({ state: "done", percent: 100 });
+      if (result) {
+        const { evidence, ...summary } = result;
+        body.append("moderation", JSON.stringify(summary));
+        evidence.forEach((e, index) => body.append("flagFrames", e.blob, `frame-${index}.jpg`));
+      }
+      const { data: created } = await studioApi.post("/api/studio/videos", body, { signal });
 
       await complete();
-      // Let the finished ring show for a moment before the share screen.
+      // Let the finished ring show for a moment before the next screen.
       await new Promise((resolve) => setTimeout(resolve, 500));
-      setPublished(result.data.video);
+      setPublished({ ...created.data.video, heldForReview: result?.verdict === "flagged" });
     } catch (err) {
       if (isUploadCancelled(err)) {
         reset();
@@ -579,6 +603,7 @@ const VideoEditor = ({ mode }) => {
 
       <UploadFlow
         upload={upload}
+        check={check}
         file={file}
         portrait={(meta?.height || 0) > (meta?.width || 0)}
         published={published}

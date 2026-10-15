@@ -15,6 +15,7 @@ const Users = lazy(() => import("./pages/Users"));
 const Channels = lazy(() => import("./pages/Channels"));
 const Comments = lazy(() => import("./pages/Comments"));
 const Reports = lazy(() => import("./pages/Reports"));
+const Moderation = lazy(() => import("./pages/Moderation"));
 const HomeCuration = lazy(() => import("./pages/HomeCuration"));
 const Ads = lazy(() => import("./pages/Ads"));
 const LiveTv = lazy(() => import("./pages/LiveTv"));
@@ -22,6 +23,7 @@ const LiveTvOverlays = lazy(() => import("./pages/LiveTvOverlays"));
 const PipraChannel = lazy(() => import("./pages/PipraChannel"));
 const LiveAnalytics = lazy(() => import("./pages/LiveAnalytics"));
 const Settings = lazy(() => import("./pages/Settings"));
+const SignupSettings = lazy(() => import("./pages/SignupSettings"));
 const Admins = lazy(() => import("./pages/Admins"));
 const Account = lazy(() => import("./pages/Account"));
 
@@ -40,6 +42,7 @@ const router = createBrowserRouter([
       { path: "channels", element: page("channels", <Channels />) },
       { path: "comments", element: page("comments", <Comments />) },
       { path: "reports", element: page("videos", <Reports />) },
+      { path: "review-queue", element: page("videos", <Moderation />) },
       { path: "home", element: page("home", <HomeCuration />) },
       { path: "ads", element: page("ads", <Ads />) },
       { path: "live-tv", element: page("live-tv", <LiveTv />) },
@@ -47,6 +50,7 @@ const router = createBrowserRouter([
       { path: "live-tv/overlays", element: page("live-tv", <LiveTvOverlays />) },
       { path: "analytics", element: page("dashboard", <LiveAnalytics />) },
       { path: "settings", element: page("settings", <Settings />) },
+      { path: "signup", element: page("settings", <SignupSettings />) },
       { path: "admins", element: page("__super", <Admins />) },
       { path: "account", element: page(undefined, <Account />) },
     ],

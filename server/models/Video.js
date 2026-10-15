@@ -52,6 +52,8 @@ const videoSchema = new mongoose.Schema(
       fileName: { type: String, default: null },
       streamId: { type: String, default: null }, // Bunny Stream video guid
       fallbackUrl: { type: String, default: null }, // Bunny Stream's MP4 copy (previews, downloads)
+      // Playing Bunny's original upload while its encodes are still being made.
+      encoding: { type: Boolean, default: false },
       size: { type: Number, default: 0 },
       mimeType: { type: String, default: null },
     },
@@ -70,7 +72,8 @@ const videoSchema = new mongoose.Schema(
     // "removed" = taken down by an admin (hidden everywhere, kept for audit).
     // "processing" = uploaded, being converted / saved (only its creator sees it);
     // "failed" = processing didn't work (see processing.error).
-    status: { type: String, enum: ["published", "removed", "processing", "failed"], default: "published" },
+    // "review" = held: the adult-content check flagged it (see utils/moderation).
+    status: { type: String, enum: ["published", "removed", "processing", "failed", "review"], default: "published" },
     removedReason: { type: String, default: null },
     processing: {
       stage: { type: String, default: null }, // checking | converting | saving | done | failed
@@ -78,6 +81,49 @@ const videoSchema = new mongoose.Schema(
       error: { type: String, default: null },
       source: { type: String, default: null }, // the uploaded file on this server, until processed
       originalName: { type: String, default: null },
+    },
+
+    // The adult-content check (utils/moderation/flow.js).
+    moderation: {
+      // none = uploaded before checks existed; exempt = uploaded by an admin
+      status: { type: String, enum: ["none", "pending", "clean", "flagged", "approved", "rejected", "unchecked", "exempt"], default: "none" },
+      flaggedBy: { type: String, default: null }, // browser | server | fingerprint | reports | unchecked
+      flaggedAt: { type: Date, default: null },
+      reason: { type: String, default: null },
+      client: {
+        verdict: { type: String, default: null },
+        adultFrames: { type: Number, default: 0 },
+        peak: { type: Number, default: 0 },
+        checked: { type: Number, default: 0 },
+        checkedAt: { type: Date, default: null },
+        frames: { type: [mongoose.Schema.Types.Mixed], default: [] },
+      },
+      server: {
+        state: { type: String, default: null }, // queued | running | done | error
+        verdict: { type: String, default: null },
+        adultFrames: { type: Number, default: 0 },
+        peak: { type: Number, default: 0 },
+        checked: { type: Number, default: 0 },
+        checkedAt: { type: Date, default: null },
+        error: { type: String, default: null },
+      },
+      // Pictures of the frames that looked pornographic, for the admin.
+      evidence: {
+        type: [
+          new mongoose.Schema(
+            { t: Number, image: { type: mediaSchema, default: () => ({}) }, scores: mongoose.Schema.Types.Mixed, source: String },
+            { _id: false, toJSON: { getters: true }, toObject: { getters: true } },
+          ),
+        ],
+        default: [],
+      },
+      // Frame fingerprints (moderation/rules.js). A rejected video's stop
+      // the same video being uploaded again.
+      fingerprints: { type: [String], default: [] },
+      deletedByOwner: { type: Boolean, default: false },
+      reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: "Admin", default: null },
+      reviewedAt: { type: Date, default: null },
+      note: { type: String, default: null },
     },
 
     views: { type: Number, default: 0 },

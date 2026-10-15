@@ -13,9 +13,14 @@ const userSchema = new mongoose.Schema(
     password: { type: String, required: true, select: false },
     avatar: { type: mediaSchema, default: () => ({}) },
     phoneVerified: { type: Boolean, default: false },
+    emailVerified: { type: Boolean, default: false },
+    // Where the account was created from (spotting bot floods).
+    signupIp: { type: String, default: null },
     status: { type: String, enum: ["active", "blocked"], default: "active" },
     // Bumped on password change / block so every older token stops working.
     tokenVersion: { type: Number, default: 0 },
+    // Videos an admin removed for adult content; at 3 the account is blocked.
+    strikes: { type: Number, default: 0 },
     lastLoginAt: { type: Date, default: null },
   },
   { timestamps: true },

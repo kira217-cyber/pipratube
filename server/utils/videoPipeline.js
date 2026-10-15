@@ -2,7 +2,6 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { createRequire } from "node:module";
 import sharp from "sharp";
 
 import Video from "../models/Video.js";
@@ -10,8 +9,10 @@ import Channel from "../models/Channel.js";
 import { uploadStreamToBunny, getBunnyCdnUrl } from "../config/bunnyStorage.js";
 import { buildBunnyFileName } from "./files.js";
 import { saveLocalImage } from "./localFiles.js";
-import { notifySubscribers } from "./notify.js";
+import { releaseWhenChecked } from "./moderation/flow.js";
 import { TMP_DIR } from "./uploadSessions.js";
+import { probeMedia } from "./mediaProbe.js";
+import { ffmpegPath } from "./ffmpegBin.js";
 
 // Every upload becomes a web-safe MP4 (H.264 video + AAC audio) — the one
 // format every browser and phone plays — the way YouTube re-encodes what it
@@ -19,9 +20,7 @@ import { TMP_DIR } from "./uploadSessions.js";
 // no quality loss); anything else (AVI, WMV, FLV, MPG, MKV, iPhone HEVC…) is
 // converted. Then the file goes to Bunny and the video is published.
 
-const require = createRequire(import.meta.url);
-const FFMPEG = process.env.FFMPEG_PATH || require("ffmpeg-static");
-const FFPROBE = process.env.FFPROBE_PATH || require("ffprobe-static").path;
+const FFMPEG = ffmpegPath();
 const PRESET = process.env.FFMPEG_PRESET || "veryfast";
 const CONCURRENCY = Math.max(1, Number(process.env.PROCESSING_CONCURRENCY) || 1);
 const MAX_SIDE = 1920; // longest side after converting (1080p)
@@ -44,22 +43,9 @@ const run = (bin, args, onLine) =>
 
 // Length, size (as displayed, after rotation) and codecs of a file.
 export const probe = async (file) => {
-  const json = JSON.parse(await run(FFPROBE, ["-v", "error", "-print_format", "json", "-show_format", "-show_streams", file]));
-  const video = json.streams?.find((s) => s.codec_type === "video" && s.disposition?.attached_pic !== 1);
-  const audio = json.streams?.find((s) => s.codec_type === "audio");
-  if (!video) throw new Error("This file has no video track");
-  const rotation = Math.abs(Number(video.side_data_list?.find((d) => d.rotation !== undefined)?.rotation ?? video.tags?.rotate ?? 0)) % 180;
-  const width = Number(video.width) || 0;
-  const height = Number(video.height) || 0;
-  return {
-    duration: Number(json.format?.duration) || Number(video.duration) || 0,
-    width: rotation === 90 ? height : width,
-    height: rotation === 90 ? width : height,
-    format: json.format?.format_name || "",
-    videoCodec: video.codec_name,
-    pixelFormat: video.pix_fmt,
-    audioCodec: audio?.codec_name || null,
-  };
+  const info = await probeMedia(file, { timeoutMs: 120000 });
+  if (!info) throw new Error("This file has no video track");
+  return info;
 };
 
 // Already H.264 with web audio (in MP4, MOV, MKV…)? Then it only needs
@@ -138,23 +124,15 @@ const processVideo = async (videoId) => {
     const fileName = buildBunnyFileName("video", "video.mp4");
     await uploadStreamToBunny(fs.createReadStream(converted), fileName, "video/mp4", size, (p) => report("saving", 70 + p * 0.3));
 
-    // Published once ready (like YouTube). A scheduled date stays as set.
-    const wasScheduled = video.publishedAt > new Date();
+    // Ready: published (or held) once the adult-content check says so.
     video.file = { provider: "storage", url: getBunnyCdnUrl(fileName), fileName, size, mimeType: "video/mp4" };
     video.durationSeconds = Math.max(1, Math.round(info.duration));
     video.width = info.width;
     video.height = info.height;
     if (thumbnail) video.thumbnail = thumbnail;
-    if (!wasScheduled) video.publishedAt = new Date();
-    video.status = "published";
-    video.processing = { stage: "done", percent: 100, error: null, source: null };
-    await video.save();
-    await syncChannelCounts(video.channel);
-
-    if (video.visibility === "public" && !wasScheduled) {
-      const channel = await Channel.findById(video.channel);
-      if (channel) notifySubscribers(channel, video);
-    }
+    video.processing.source = null;
+    video.processing.error = null;
+    await releaseWhenChecked(video);
   } catch (error) {
     console.error(`Video ${videoId} failed:`, error.message);
     await Video.updateOne({ _id: videoId }, { status: "failed", "processing.stage": "failed", "processing.error": error.message.slice(0, 300), "processing.source": null }).catch(() => {});

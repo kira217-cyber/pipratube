@@ -24,6 +24,7 @@ import { Avatar, Card, EmptyState, GhostButton, Spinner } from "../components/ui
 import { useAuth } from "../context/AuthContext";
 import { apiError, studioApi } from "../api/studioApi";
 import { formatCount, fullDate, viewsText } from "../utils/format";
+import ReviewWarning from "../components/ReviewWarning";
 import { toast } from "../utils/alerts";
 
 const PAGE_SIZE = 20;
@@ -52,8 +53,10 @@ const SORTS = [
 const isScheduled = (video) => new Date(video.publishedAt) > new Date();
 
 export const VisibilityPill = ({ video }) => {
-  const meta = video.status === "processing"
-    ? { label: `Processing ${video.processing?.percent || 0}%`, icon: Loader2, className: "bg-amber-400/15 text-amber-300", spin: true }
+  const meta = video.status === "review"
+    ? { label: "In review", icon: ShieldAlert, className: "bg-live/20 text-[#ff6b81]" }
+    : video.status === "processing"
+    ? { label: "Checking…", icon: Loader2, className: "bg-amber-400/15 text-amber-300", spin: true }
     : video.status === "failed"
       ? { label: "Failed", icon: AlertTriangle, className: "bg-live/15 text-[#f87171]" }
       : video.status === "removed"
@@ -117,6 +120,7 @@ const MyVideos = () => {
   const [loadingMore, setLoadingMore] = useState(false);
   const [toDelete, setToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [refresh, setRefresh] = useState(0);
 
   useEffect(() => {
     const timer = setTimeout(() => setQuery(search.trim()), 300);
@@ -129,7 +133,7 @@ const MyVideos = () => {
   useEffect(() => {
     let cancelled = false;
     studioApi
-      .get("/api/studio/videos", { params: { ...JSON.parse(listKey), page: 1 } })
+      .get("/api/studio/videos", { params: { ...JSON.parse(listKey), page: 1, refresh: refresh || undefined } })
       .then(({ data }) => {
         if (!cancelled) setList({ key: listKey, videos: data.data.videos, page: 1, totalPages: data.data.totalPages, total: data.data.total });
       })
@@ -141,7 +145,7 @@ const MyVideos = () => {
     return () => {
       cancelled = true;
     };
-  }, [listKey]);
+  }, [listKey, refresh]);
 
   // While anything is processing, refresh just those videos every few seconds.
   const processingIds = list.videos.filter((v) => v.status === "processing").map((v) => v.id).join(",");
@@ -219,6 +223,10 @@ const MyVideos = () => {
         >
           <CloudUpload className="h-5 w-5" /> Upload
         </button>
+      </div>
+
+      <div className="mt-5">
+        <ReviewWarning onChange={() => setRefresh((n) => n + 1)} />
       </div>
 
       <div className="no-scrollbar -mx-4 mt-5 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:px-0">
@@ -309,6 +317,11 @@ const MyVideos = () => {
                     </div>
                     {video.status === "removed" && video.removedReason && <p className="mt-1.5 text-xs text-[#f87171]">Removed: {video.removedReason}</p>}
                     {video.status === "failed" && <p className="mt-1.5 text-xs text-[#f87171]">Couldn't process: {video.processing?.error || "please upload it again"}</p>}
+                    {video.status === "review" && (
+                      <p className="mt-1.5 rounded-lg border border-[#e3172f]/60 bg-[#e3172f]/10 px-2 py-1.5 text-xs font-semibold leading-snug text-[#ff8a9a]">
+                        Not public: adult / sexual content was found. Our team will review it — please delete it if it breaks the rules.
+                      </p>
+                    )}
                     {video.status === "processing" && (
                       <p className="mt-1.5 text-xs leading-snug text-amber-300">
                         Your video has been successfully uploaded. We are currently reviewing its copyright compliance and video quality. Please wait...

@@ -59,7 +59,7 @@ const subscriptionSchema = new mongoose.Schema(
 subscriptionSchema.index({ subscriber: 1, channel: 1 }, { unique: true });
 export const Subscription = mongoose.model("Subscription", subscriptionSchema);
 
-export const NOTIFICATION_TYPES = ["new_video", "comment", "reply", "subscriber", "heart"];
+export const NOTIFICATION_TYPES = ["new_video", "comment", "reply", "subscriber", "heart", "video_review", "video_approved", "video_rejected", "account_blocked"];
 
 const notificationSchema = new mongoose.Schema(
   {

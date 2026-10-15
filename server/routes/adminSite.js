@@ -7,6 +7,8 @@ import { Ad, AD_PLACEMENTS, LiveTvChannel, LiveTvOverlay, OVERLAY_KINDS, OVERLAY
 import { pipraNowPlaying } from "../utils/pipraChannel.js";
 import { LIVE_TV_CATEGORIES, parseLiveTvCategories } from "../models/liveTvCategories.js";
 import { requireAdmin } from "../middleware/auth.js";
+import { adminAuthSetting, forgetAuthSetting, getAuthSetting } from "../models/AuthSetting.js";
+import { testEmail, testSms } from "../utils/otp.js";
 import { imageUpload, videoUpload, storeImage, removeStored } from "../config/uploads.js";
 import { discardStreamedUploadsOnFailure } from "../config/bunnyStreamStorage.js";
 import { saveLocalImage } from "../utils/localFiles.js";
@@ -560,5 +562,94 @@ router.patch(
     }
   },
 );
+
+// ================= Sign-up & sign-in (methods, codes) =================
+// Which ways people may sign up / sign in, whether a code (OTP) is needed,
+// and the SMS / mail services that send the codes.
+
+const loadAuth = async () => getAuthSetting({ fresh: true });
+const savedAuth = async (res, setting, message) => {
+  await setting.save();
+  forgetAuthSetting();
+  return successResponse(res, message, { auth: adminAuthSetting(await loadAuth()) });
+};
+
+router.get("/auth-settings", requireAdmin("settings"), async (req, res) => {
+  try {
+    return successResponse(res, "Sign-in settings", { auth: adminAuthSetting(await loadAuth()) });
+  } catch (error) {
+    return errorResponse(res, error.message, 500);
+  }
+});
+
+router.put("/auth-settings", requireAdmin("settings"), async (req, res) => {
+  try {
+    const setting = await loadAuth();
+    const body = req.body || {};
+    if (body.registrationOpen !== undefined) setting.registrationOpen = bool(body.registrationOpen);
+    for (const method of ["phone", "email"]) {
+      for (const key of ["register", "login", "otp"]) {
+        if (body[method]?.[key] !== undefined) setting[method][key] = bool(body[method][key]);
+      }
+    }
+    if (!setting.phone.login && !setting.email.login) return errorResponse(res, "Keep at least one way to sign in on", 400);
+    if (body.dailyOtpLimit !== undefined) setting.dailyOtpLimit = Math.min(100000, Math.max(1, Math.round(Number(body.dailyOtpLimit) || 1000)));
+    return savedAuth(res, setting, "Saved");
+  } catch (error) {
+    return errorResponse(res, error.message, 500);
+  }
+});
+
+router.put("/auth-settings/sms", requireAdmin("settings"), async (req, res) => {
+  try {
+    const setting = await loadAuth();
+    setting.sms.apiKey = String(req.body?.apiKey || "").trim();
+    return savedAuth(res, setting, setting.sms.apiKey ? "SMS key saved" : "SMS key removed");
+  } catch (error) {
+    return errorResponse(res, error.message, 500);
+  }
+});
+
+router.put("/auth-settings/smtp", requireAdmin("settings"), async (req, res) => {
+  try {
+    const setting = await loadAuth();
+    const body = req.body || {};
+    setting.smtp.host = String(body.host || "").trim();
+    setting.smtp.port = Math.min(65535, Math.max(1, Number(body.port) || 587));
+    setting.smtp.secure = bool(body.secure);
+    setting.smtp.user = String(body.user || "").trim();
+    // Left empty = keep the saved password.
+    if (typeof body.pass === "string" && body.pass) setting.smtp.pass = body.pass;
+    if (body.clearPass) setting.smtp.pass = "";
+    setting.smtp.from = String(body.from || "").trim();
+    return savedAuth(res, setting, "Mail server saved");
+  } catch (error) {
+    return errorResponse(res, error.message, 500);
+  }
+});
+
+router.post("/auth-settings/test", requireAdmin("settings"), async (req, res) => {
+  const channel = req.body?.channel === "email" ? "email" : "phone";
+  const setting = await loadAuth();
+  const field = channel === "email" ? "smtp" : "sms";
+  try {
+    if (channel === "phone") {
+      const digits = String(req.body?.to || "").replace(/\D/g, "").replace(/^880/, "0").replace(/^88/, "");
+      if (!/^01[3-9]\d{8}$/.test(digits)) return errorResponse(res, "Enter a Bangladeshi mobile number (01XXXXXXXXX)", 400);
+      await testSms(digits);
+    } else {
+      await testEmail(String(req.body?.to || "").trim());
+    }
+    setting[field].lastTestedAt = new Date();
+    setting[field].lastTestError = "";
+    return savedAuth(res, setting, channel === "email" ? "Test email sent" : "Test SMS sent");
+  } catch (error) {
+    setting[field].lastTestedAt = new Date();
+    setting[field].lastTestError = String(error.message || error).slice(0, 300);
+    await setting.save();
+    forgetAuthSetting();
+    return errorResponse(res, setting[field].lastTestError, 400);
+  }
+});
 
 export default router;

@@ -25,6 +25,7 @@ const FeedCard = ({ video, eager = false }) => {
           id={`feed-${videoId(video)}`}
           src={video.videoUrl}
           poster={video.thumbnail}
+          posterWidth={720}
           alt={video.title}
           duration={video.duration}
           eager={eager}

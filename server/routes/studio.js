@@ -11,8 +11,8 @@ import { storeMediaFile } from "../utils/storeMedia.js";
 import { successResponse, errorResponse } from "../utils/response.js";
 import { videoFromUpload } from "../utils/uploadToVideo.js";
 import { videoFromStream } from "../utils/streamVideos.js";
+import { deleteUnderReview, parseClientCheck, releaseWhenChecked, STRIKES_TO_BLOCK } from "../utils/moderation/flow.js";
 import { publicVideo } from "../utils/serialize.js";
-import { notifySubscribers } from "../utils/notify.js";
 import { Comment, CommentLike, Playlist, Reaction, WatchHistory } from "../models/Engagement.js";
 
 // Creator side: everything a channel owner does with their own videos.
@@ -72,6 +72,27 @@ const syncChannelCounts = async (channelId) => {
 
 // ---- upload ----
 
+// The browser's adult-content check, plus pictures of any flagged frames.
+const clientCheckFor = async (req) => {
+  const check = parseClientCheck(req.body?.moderation);
+  if (!check) return null;
+  const pictures = req.files?.flagFrames || [];
+  const evidence = [];
+  for (const [index, file] of pictures.entries()) {
+    const image = await storeImage(file, "moderation").catch(() => null);
+    if (image) evidence.push({ t: check.frames[index]?.t || 0, image, scores: check.frames[index]?.scores || {}, source: "browser" });
+  }
+  return { check, evidence };
+};
+
+const applyClientCheck = (video, found) => {
+  if (!found) return;
+  const { hashes, ...client } = found.check;
+  video.moderation.client = client;
+  video.moderation.fingerprints = hashes;
+  found.evidence.forEach((e) => video.moderation.evidence.push(e));
+};
+
 router.post("/videos", handleUpload(videoUpload), discardStreamedUploadsOnFailure, async (req, res) => {
   const uploadId = req.query.uploadId || req.body?.uploadId;
   const videoFile = req.files?.video?.[0];
@@ -79,14 +100,24 @@ router.post("/videos", handleUpload(videoUpload), discardStreamedUploadsOnFailur
 
   try {
     if (!String(req.body?.title || "").trim()) return errorResponse(res, "Add a title", 400);
+    const clientCheck = await clientCheckFor(req);
 
     // Uploaded straight to Bunny Stream: it encodes, we publish when done.
     if (req.body?.streamGuid) {
       const video = await videoFromStream({
         guid: req.body.streamGuid,
         uploader: `user:${req.user._id}`,
-        fields: { channel: req.channel._id, owner: req.user._id, title: req.body.title, thumbnail: thumbFile ? await storeImage(thumbFile, "thumb") : {} },
-        apply: (v) => applyDetails(v, req.body || {}),
+        fields: { channel: req.channel._id, owner: req.user._id, title: req.body.title, thumbnail: thumbFile ? await storeImage(thumbFile, "thumb", { screen: true }) : {} },
+        apply: (v) => {
+          applyDetails(v, req.body || {});
+          applyClientCheck(v, clientCheck);
+          // What the browser read from the file — used only until (or if
+          // ever) this server reads the file itself.
+          const hint = (key, max) => Math.min(max, Math.max(0, Math.round(Number(req.body?.[key]) || 0)));
+          v.durationSeconds = hint("durationSeconds", 24 * 3600);
+          v.width = hint("width", 8192);
+          v.height = hint("height", 8192);
+        },
       });
       await video.populate("channel");
       return successResponse(res, "Uploaded — processing", { video: publicVideo(video, { owner: true }) }, 201);
@@ -97,8 +128,11 @@ router.post("/videos", handleUpload(videoUpload), discardStreamedUploadsOnFailur
       const video = await videoFromUpload({
         uploadId: req.body.sourceUploadId,
         uploader: `user:${req.user._id}`,
-        fields: { channel: req.channel._id, owner: req.user._id, title: req.body.title, thumbnail: thumbFile ? await storeImage(thumbFile, "thumb") : {} },
-        apply: (v) => applyDetails(v, req.body || {}),
+        fields: { channel: req.channel._id, owner: req.user._id, title: req.body.title, thumbnail: thumbFile ? await storeImage(thumbFile, "thumb", { screen: true }) : {} },
+        apply: (v) => {
+          applyDetails(v, req.body || {});
+          applyClientCheck(v, clientCheck);
+        },
       });
       await video.populate("channel");
       return successResponse(res, "Uploaded — processing", { video: publicVideo(video, { owner: true }) }, 201);
@@ -115,7 +149,7 @@ router.post("/videos", handleUpload(videoUpload), discardStreamedUploadsOnFailur
     let stored = { url: videoFile.bunnyUrl, fileName: videoFile.bunnyFileName };
     if (!stored.url) stored = await storeMediaFile(videoFile, "video", uploadId);
 
-    const thumbnail = thumbFile ? await storeImage(thumbFile, "thumb") : {};
+    const thumbnail = thumbFile ? await storeImage(thumbFile, "thumb", { screen: true }) : {};
 
     const video = new Video({
       channel: req.channel._id,
@@ -132,13 +166,12 @@ router.post("/videos", handleUpload(videoUpload), discardStreamedUploadsOnFailur
       durationSeconds: Math.round(durationSeconds),
       width: Number(req.body?.width) || 0,
       height: Number(req.body?.height) || 0,
+      status: "processing",
     });
     applyDetails(video, req.body || {});
-    await video.save();
-    await syncChannelCounts(req.channel._id);
-
-    // Ring the bell for subscribers when it goes out publicly right away.
-    if (video.visibility === "public" && video.publishedAt <= new Date()) notifySubscribers(req.channel, video);
+    applyClientCheck(video, clientCheck);
+    // Published (and subscribers notified) only once it passes the check.
+    await releaseWhenChecked(video);
 
     await video.populate("channel");
     return successResponse(res, "Video published", { video: publicVideo(video, { owner: true }) }, 201);
@@ -204,7 +237,7 @@ router.patch("/videos/:id", handleUpload(imageUpload.single("thumbnail")), async
     applyDetails(video, req.body || {});
     if (req.file) {
       const previous = video.thumbnail?.fileName;
-      video.thumbnail = await storeImage(req.file, "thumb");
+      video.thumbnail = await storeImage(req.file, "thumb", { screen: true });
       removeStored(previous);
     }
     await video.save();
@@ -216,8 +249,25 @@ router.patch("/videos/:id", handleUpload(imageUpload.single("thumbnail")), async
   }
 });
 
+// The creator's moderation status: strikes so far and videos held for review.
+router.get("/moderation", async (req, res) => {
+  const inReview = await Video.find({ channel: req.channel._id, status: "review" }).sort({ createdAt: -1 }).populate("channel");
+  return successResponse(res, "Moderation", {
+    strikes: req.user.strikes || 0,
+    strikesToBlock: STRIKES_TO_BLOCK,
+    inReview: inReview.map((v) => publicVideo(v, { owner: true })),
+  });
+});
+
 router.delete("/videos/:id", async (req, res) => {
   try {
+    // A video held for adult content: gone for the creator, kept on record
+    // for the admin's decision.
+    const held = await Video.findOne({ _id: req.params.id, channel: req.channel._id, status: "review" }).catch(() => null);
+    if (held) {
+      await deleteUnderReview(held, removeStored);
+      return successResponse(res, "Video deleted");
+    }
     const video = await Video.findOneAndDelete({ _id: req.params.id, channel: req.channel._id }).catch(() => null);
     if (!video) return errorResponse(res, "Video not found", 404);
     removeStored(video.file?.fileName);

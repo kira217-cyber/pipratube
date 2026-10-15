@@ -137,6 +137,27 @@ const AppLayout = () => {
     window.scrollTo({ top: 0 });
   }, [location.pathname]);
 
+  // While the page scrolls, mark it (see .is-scrolling in index.css) so
+  // hover effects pause; cleared 150ms after the last scroll.
+  useEffect(() => {
+    const root = document.documentElement;
+    let timer = 0;
+    const onScroll = () => {
+      if (!timer) root.classList.add("is-scrolling");
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        timer = 0;
+        root.classList.remove("is-scrolling");
+      }, 150);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.clearTimeout(timer);
+      root.classList.remove("is-scrolling");
+    };
+  }, []);
+
   // The drawer covers the page; stop the page scrolling behind it.
   useEffect(() => {
     if (!drawerOpen) return undefined;

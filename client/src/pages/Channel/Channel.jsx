@@ -56,7 +56,7 @@ const Banner = ({ url }) => (
 const ShortTile = ({ video, className = "" }) => (
   <div className={`group/card relative ${className}`}>
     <Link to={`/shorts?v=${video.id}`} className="block overflow-hidden rounded-xl bg-card-2">
-      <VideoPreview id={`channel-short-${video.id}`} src={video.videoUrl} poster={video.thumbnail} alt={video.title} clipSeconds={4} minimal className="aspect-[9/16]" />
+      <VideoPreview id={`channel-short-${video.id}`} src={video.videoUrl} posterWidth={360} poster={video.thumbnail} alt={video.title} clipSeconds={4} minimal className="aspect-[9/16]" />
     </Link>
     <div className="mt-2 flex gap-1">
       <Link to={`/shorts?v=${video.id}`} className="min-w-0 flex-1">

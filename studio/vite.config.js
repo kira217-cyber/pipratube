@@ -8,6 +8,9 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react(), tailwindcss()],
+    // The adult-content check's Web Worker (src/utils/videoCheck.worker.js)
+    // imports modules, so it's built as an ES module worker.
+    worker: { format: "es" },
     server: {
       port: 5174,
       // In dev the browser only talks to Vite (see src/api/axios.js).
